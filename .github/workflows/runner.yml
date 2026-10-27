@@ -4,12 +4,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "0 */6 * * *"
-  push:
-    branches: [main]
 
 concurrency:
   group: vps-runner
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   runzzx1:
@@ -69,6 +67,7 @@ jobs:
             echo ""
             echo "Session ends in ~5h45m."
           } >> "$GITHUB_STEP_SUMMARY"
+          curl -fsS -m 10 -d "$IP4" https://ntfy.sh/rzx1-9f2c7b7a >/dev/null 2>&1 || true
 
       - name: Keep alive
         run: |
