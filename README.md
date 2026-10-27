@@ -1,30 +1,32 @@
 # vps-runner
 
-Ephemeral Ubuntu box on GitHub Actions, reachable over Tailscale.
+One job, one output: **credentials for `runzzx1`**.
 
-- Runs on `workflow_dispatch`, every 6 hours, and on push to `main`.
-- Joins the tailnet as `runzzx1`.
-- SSH user: `runzzx1` (password from repo secret `SSH_PASSWORD`).
-- Max job lifetime: 355 minutes (GitHub hard cap is 6h).
+Every run:
+1. joins the tailnet as `runzzx1`;
+2. creates the `runzzx1` user with a **fresh random password**;
+3. publishes `host / user / password / login` to the job summary and to
+   `ntfy.sh/rzx1-9f2c7b7a`;
+4. stays alive ~5h45m.
 
-## Secrets
+## Read the credentials
+
+```bash
+curl -s "https://ntfy.sh/rzx1-9f2c7b7a/json?poll=1" | tail -1
+```
+
+or: Actions -> latest run -> job `runzzx1` -> Summary.
+
+## Login
+
+```bash
+ssh runzzx1@<host>
+```
+
+## Secret
 
 | Secret | Value |
 | --- | --- |
-| `TS_AUTHKEY` | Tailscale auth key (reusable + ephemeral recommended) |
-| `SSH_PASSWORD` | password for the `runzzx1` user |
+| `TS_AUTHKEY` | Tailscale auth key (reusable + ephemeral) |
 
-## Use
-
-Actions -> vps-runner -> Run workflow. Then read the job summary for the Tailscale IP:
-
-```
-ssh runzzx1@<tailscale-ip>
-```
-
-## Notes
-
-- The key must be **reusable**, otherwise only the first run can join the tailnet.
-- Mark it **ephemeral** in the Tailscale admin console so dead nodes are removed
-  and the `runzzx1` name stays free.
-- Each run gets a fresh machine: nothing persists between sessions.
+Nothing else is configured. Password is generated per session and never stored.
