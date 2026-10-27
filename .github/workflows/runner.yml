@@ -1,0 +1,76 @@
+name: vps-runner
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+  push:
+    branches: [main]
+
+concurrency:
+  group: vps-runner
+  cancel-in-progress: false
+
+jobs:
+  runzzx1:
+    name: runzzx1
+    runs-on: ubuntu-latest
+    timeout-minutes: 355
+    steps:
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Join tailnet
+        env:
+          TS_AUTHKEY: ${{ secrets.TS_AUTHKEY }}
+        run: |
+          sudo tailscale up \
+            --authkey="$TS_AUTHKEY" \
+            --hostname=runzzx1 \
+            --accept-dns=false \
+            --ssh=false
+          sudo tailscale status
+
+      - name: Setup SSH user
+        env:
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openssh-server >/dev/null
+
+          id -u runzzx1 >/dev/null 2>&1 || sudo useradd -m -s /bin/bash runzzx1
+          echo "runzzx1:$SSH_PASSWORD" | sudo chpasswd
+          echo "runzzx1 ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/runzzx1 >/dev/null
+          sudo chmod 440 /etc/sudoers.d/runzzx1
+
+          printf '%s\n' \
+            'PasswordAuthentication yes' \
+            'KbdInteractiveAuthentication no' \
+            'PermitRootLogin no' \
+            'Port 22' \
+            | sudo tee /etc/ssh/sshd_config.d/99-runzzx1.conf >/dev/null
+
+          sudo mkdir -p /run/sshd
+          sudo /usr/sbin/sshd -t
+          sudo service ssh restart || sudo /usr/sbin/sshd
+
+      - name: Publish access info
+        run: |
+          IP4=$(tailscale ip -4 | head -1)
+          {
+            echo "### runzzx1 is up"
+            echo ""
+            echo '```'
+            echo "host:     $IP4"
+            echo "user:     runzzx1"
+            echo "ssh:      ssh runzzx1@$IP4"
+            echo '```'
+            echo ""
+            echo "Session ends in ~5h45m."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep alive
+        run: |
+          sudo tailscale status
+          sleep 20700
