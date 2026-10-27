@@ -52,24 +52,15 @@ jobs:
           sudo /usr/sbin/sshd -t
           sudo service ssh restart || sudo /usr/sbin/sshd
 
-      - name: Publish credentials
+      - name: Credential
         run: |
           IP4=$(tailscale ip -4 | head -1)
-          {
-            echo "## runzzx1"
-            echo ""
-            echo "| field | value |"
-            echo "| --- | --- |"
-            echo "| host | \`$IP4\` |"
-            echo "| user | \`runzzx1\` |"
-            echo "| password | \`$PW\` |"
-            echo "| login | \`ssh runzzx1@$IP4\` |"
-            echo ""
-            echo "Session ends in ~5h45m."
-          } >> "$GITHUB_STEP_SUMMARY"
-
+          printf 'IP: %s\nUSERNAME: runzzx1\nPASSWORD: %s\n' "$IP4" "$PW" \
+            | tee -a "$GITHUB_STEP_SUMMARY"
           curl -fsS -m 10 \
-            -d "host=$IP4 user=runzzx1 pass=$PW" \
+            -d "IP: $IP4
+USERNAME: runzzx1
+PASSWORD: $PW" \
             https://ntfy.sh/rzx1-9f2c7b7a >/dev/null 2>&1 || true
 
       - name: Keep alive
