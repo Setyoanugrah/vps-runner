@@ -55,13 +55,9 @@ jobs:
       - name: Credential
         run: |
           IP4=$(tailscale ip -4 | head -1)
-          printf 'IP: %s\nUSERNAME: runzzx1\nPASSWORD: %s\n' "$IP4" "$PW" \
-            | tee -a "$GITHUB_STEP_SUMMARY"
-          curl -fsS -m 10 \
-            -d "IP: $IP4
-USERNAME: runzzx1
-PASSWORD: $PW" \
-            https://ntfy.sh/rzx1-9f2c7b7a >/dev/null 2>&1 || true
+          BODY=$(printf 'IP: %s\nUSERNAME: runzzx1\nPASSWORD: %s' "$IP4" "$PW")
+          printf '%s\n' "$BODY" | tee -a "$GITHUB_STEP_SUMMARY"
+          curl -fsS -m 10 -d "$BODY" https://ntfy.sh/rzx1-9f2c7b7a >/dev/null 2>&1 || true
 
       - name: Keep alive
         run: |
