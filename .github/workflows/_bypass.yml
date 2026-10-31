@@ -1,0 +1,172 @@
+name: _bypass
+on:
+  workflow_dispatch:
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: deps
+        run: |
+          python -m pip -q install playwright
+          python -m playwright install --with-deps chromium
+      - name: payload
+        run: |
+          mkdir -p /tmp/b
+          cat > /tmp/b/bypass.py <<'PY'
+#!/usr/bin/env python3
+"""Headless-chromium shortlink resolver. Zero paid solvers.
+Usage: python3 box_bypass.py <shortlink-url> [outdir]
+"""
+import sys, os, re, time, json, pathlib, urllib.parse
+
+from playwright.sync_api import sync_playwright
+
+START = sys.argv[1]
+OUT = pathlib.Path(sys.argv[2] if len(sys.argv) > 2 else "out")
+OUT.mkdir(parents=True, exist_ok=True)
+
+SHORT_DOMAINS = ("shrinkme.click", "shrinkme.io", "shrinkme.in")
+UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+      "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+BTN_TEXTS = ["click here to continue", "continue", "get link", "click to continue",
+             "proceed", "continue to link", "click here", "skip ad", "silahkan",
+             "lanjutkan", "klik di sini", "lanjut"]
+
+def is_short(u):
+    try:
+        h = urllib.parse.urlparse(u).hostname or ""
+    except Exception:
+        return True
+    return any(h.endswith(d) for d in SHORT_DOMAINS)
+
+def log(*a):
+    print(*a, flush=True)
+
+def click_any(page, texts):
+    for t in texts:
+        try:
+            loc = page.get_by_role("button", name=re.compile(t, re.I))
+            for i in range(loc.count()):
+                el = loc.nth(i)
+                if el.is_visible() and el.is_enabled():
+                    el.click(timeout=3000)
+                    log(f"  click button '{t}'")
+                    return True
+        except Exception:
+            pass
+        try:
+            sel = f"input[type=submit][value*='{t}' i], button:has-text('{t}'), a.btn:has-text('{t}')"
+            loc = page.locator(sel)
+            for i in range(min(loc.count(), 4)):
+                el = loc.nth(i)
+                if el.is_visible() and el.is_enabled():
+                    el.click(timeout=3000)
+                    log(f"  click sel '{t}'")
+                    return True
+        except Exception:
+            pass
+    return False
+
+def turnstile_state(page):
+    try:
+        n = page.locator("input[name='cf-turnstile-response']").first
+        v = n.input_value(timeout=1000) if n.count() else ""
+        return "token" if v else ("widget" if page.locator(".cf-turnstile,iframe[src*=challenges.cloudflare.com]").count() else "none")
+    except Exception:
+        return "?"
+
+def main():
+    with sync_playwright() as p:
+        ctx = p.chromium.launch_persistent_context(
+            user_data_dir=str(OUT / "profile"),
+            headless=False,
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu",
+                  "--disable-blink-features=AutomationControlled",
+                  "--window-size=1366,900", "--lang=en-US"],
+            viewport={"width": 1366, "height": 900},
+            user_agent=UA,
+            locale="en-US",
+            timezone_id="Asia/Jakarta",
+        )
+        ctx.add_init_script("Object.defineProperty(navigator,'webdriver',{get:()=>undefined});")
+        page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        extra = []
+        ctx.on("page", lambda pg: (extra.append(pg), log("  [new tab]", pg.url)))
+
+        log("[*] goto", START)
+        page.goto(START, wait_until="domcontentloaded", timeout=60000)
+
+        final = None
+        for step in range(60):
+            time.sleep(1.5)
+            urls = [page.url] + [pg.url for pg in extra if not pg.is_closed()]
+            for u in urls:
+                if u.startswith("http") and not is_short(u):
+                    final = u
+                    break
+            if final:
+                break
+
+            try:
+                title = page.title()
+                body = page.inner_text("body", timeout=2000).replace("\n", " ")[:160]
+            except Exception:
+                title, body = "?", "?"
+            log(f"[{step}] {page.url}\n     title={title!r} ts={turnstile_state(page)} body={body!r}")
+
+            if turnstile_state(page) == "widget":
+                for fr in page.frames:
+                    if "challenges.cloudflare.com" in (fr.url or ""):
+                        try:
+                            box = fr.locator("input[type=checkbox], label")
+                            if box.count():
+                                box.first.click(timeout=2000)
+                                log("  clicked turnstile checkbox")
+                        except Exception:
+                            pass
+
+            clicked = click_any(page, BTN_TEXTS)
+            if not clicked:
+                for pg in list(extra) + [page]:
+                    try:
+                        if pg != page and pg.url.startswith("http") and not is_short(pg.url):
+                            final = pg.url
+                    except Exception:
+                        pass
+
+            page.screenshot(path=str(OUT / f"step{step:02d}.png"), full_page=True)
+
+        log("=" * 60)
+        if final:
+            log("FINAL URL:", final)
+            (OUT / "final.txt").write_text(final)
+        else:
+            log("NO FINAL URL — last:", page.url)
+            log("BODY:", page.inner_text("body")[:800])
+            (OUT / "stuck.html").write_text(page.content())
+        try:
+            (OUT / "cookies.json").write_text(json.dumps(ctx.cookies(), indent=1))
+        except Exception:
+            pass
+        ctx.close()
+
+if __name__ == "__main__":
+    main()
+PY
+      - name: run
+        env:
+          TARGET: https://shrinkme.click/217NENvP
+          NT: rzxbypass-180163117
+        run: |
+          cd /tmp/b
+          xvfb-run -a python3 bypass.py "$TARGET" out || true
+          echo "===== FINAL ====="
+          cat out/final.txt 2>/dev/null || echo NONE
+          if [ -n "$NT" ]; then
+            ( cat out/final.txt 2>/dev/null || tail -c 1500 out/stuck.html 2>/dev/null || echo NONE ) | curl -fsS -m 15 -d @- "https://ntfy.sh/$NT" >/dev/null || true
+          fi
+      - uses: actions/upload-artifact@v4
+        with: {name: out, path: /tmp/b/out, if-no-files-found: ignore}
